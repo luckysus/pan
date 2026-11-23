@@ -34,20 +34,57 @@
       : (window.PAN_FOLDER ? window.PAN_FOLDER.csrf : window.replace_csrf_token);
     return $.ajax({ type: 'POST', url: ctx.endpoint + action, data: data, dataType: 'json' });
   }
-  function rowsTable(ctx, rows) {
-    var $table = $('<table class="table table-hover"><thead><tr></tr></thead><tbody></tbody></table>');
-    [label(ctx, 'old'), label(ctx, 'new'), label(ctx, 'status')].forEach(function (text) {
-      $('<th>').text(text).appendTo($table.find('thead tr'));
+  function recenter(index, $layer) {
+    layer.style(index, {
+      top: Math.max(16, ($(window).height() - $layer.outerHeight()) / 2) + 'px',
+      left: Math.max(12, ($(window).width() - $layer.outerWidth()) / 2) + 'px'
+    });
+  }
+  function openDialog(options) {
+    var success = options.success, end = options.end, resize;
+    options.type = 1;
+    options.skin = 'pan-batch-layer ' + (options.skin || '');
+    options.area = '860px';
+    options.shadeClose = false;
+    options.success = function ($layer, index) {
+      resize = function () { recenter(index, $layer); };
+      $(window).on('resize', resize);
+      if (success) success($layer, index);
+      resize();
+    };
+    options.end = function () {
+      if (resize) $(window).off('resize', resize);
+      // layer 会将传入的 jQuery 节点还原到 body；这些节点为本弹窗新建，关闭后一并移除。
+      if (options.content && options.content.jquery) options.content.remove();
+      if (end) end();
+    };
+    // Layer 3 的 jQuery content 通过 wrap 原地包裹，必须先有真实的 DOM 插入点。
+    if (options.content && options.content.jquery) options.content.hide().appendTo(document.body);
+    return layer.open(options);
+  }
+  function selectedNote(ctx, selected) {
+    return $('<div class="batch-selection">').text(label(ctx, 'selected').replace('{count}', selected.length));
+  }
+  function rowsTable(ctx, rows, linksOnly) {
+    var $table = $('<table class="batch-table"><thead><tr></tr></thead><tbody></tbody></table>');
+    var headings = linksOnly ? [label(ctx, 'old'), label(ctx, 'status')]
+      : [label(ctx, 'old'), label(ctx, 'new'), label(ctx, 'status')];
+    headings.forEach(function (text) {
+      $('<th scope="col">').text(text).appendTo($table.find('thead tr'));
     });
     (rows || []).forEach(function (row) {
       var $tr = $('<tr>');
-      $('<td>').text(row.old || ('#' + row.id)).appendTo($tr);
-      $('<td>').text(row.name || '').appendTo($tr);
-      $('<td>').text(row.msg || '').appendTo($tr);
-      if (row.status === 'skip') $tr.addClass('text-warning');
+      var values = [row.old || ('#' + row.id)];
+      if (!linksOnly) values.push(row.name || '');
+      values.push(row.msg || '');
+      values.forEach(function (text, index) {
+        var $td = $('<td>').attr('data-label', headings[index]).appendTo($tr);
+        var $text = $('<span>').text(text).appendTo($td);
+        if (index === values.length - 1) $text.addClass('batch-status ' + (row.status === 'skip' ? 'batch-status-skip' : 'batch-status-ok'));
+      });
       $tr.appendTo($table.find('tbody'));
     });
-    return $('<div class="table-responsive">').append($table);
+    return $('<div class="batch-table-wrap">').append($table);
   }
   function openLinks(ctx, selected) {
     var loading = layer.load(2);
@@ -57,20 +94,26 @@
         layer.msg((res && res.msg) || label(ctx, 'failed')); return;
       }
       var text = res.links.join('\n');
-      layer.open({
-        type: 1, title: label(ctx, 'links_title'),
-        area: [Math.min(680, $(window).width() - 24) + 'px', Math.min(530, $(window).height() - 48) + 'px'],
-        btn: [label(ctx, 'copy'), label(ctx, 'close')], shadeClose: false,
-        content: '<div class="uc-dialog"><p class="batch-summary"></p><textarea class="uc-input" readonly rows="9" style="width:100%;resize:vertical"></textarea><div class="batch-skipped"></div></div>',
-        success: function (layero) {
-          layero.find('.batch-summary').text(res.msg);
-          layero.find('textarea').val(text);
-          var skipped = (res.rows || []).filter(function (row) { return row.status !== 'ok'; });
-          if (skipped.length) layero.find('.batch-skipped').append(rowsTable(ctx, skipped));
-        },
-        yes: function (index, layero) {
+      var $content = $('<div class="pan-batch-dialog batch-links-dialog">').append(selectedNote(ctx, selected));
+      $('<p class="batch-summary" role="status">').text(res.msg).appendTo($content);
+      var $field = $('<label class="batch-field">').appendTo($content);
+      $('<span class="batch-field-label">').text(label(ctx, 'links_label')).appendTo($field);
+      $('<textarea class="batch-input batch-links-text" readonly rows="9" spellcheck="false">').val(text).appendTo($field);
+      $('<p class="batch-help">').text(label(ctx, 'links_hint')).appendTo($content);
+      var skipped = (res.rows || []).filter(function (row) { return row.status !== 'ok'; });
+      if (skipped.length) {
+        var $skipped = $('<section class="batch-section batch-skipped">').appendTo($content);
+        $('<h3 class="batch-section-title">').text(label(ctx, 'skipped')).appendTo($skipped);
+        $skipped.append(rowsTable(ctx, skipped, true));
+      }
+      openDialog({
+        title: label(ctx, 'links_title'), skin: 'batch-links-layer',
+        btn: [label(ctx, 'copy'), label(ctx, 'close')], content: $content,
+        yes: function (index, $layer) {
           function fallback() {
-            var el = layero.find('textarea')[0]; el.focus(); el.select();
+            var el = $layer.find('textarea')[0];
+            if (!el || !document.documentElement.contains(el)) return;
+            el.focus(); el.select();
             var copied = false;
             try { copied = document.execCommand('copy'); } catch (ignored) {}
             layer.msg(label(ctx, copied ? 'copied' : 'manual_copy'));
@@ -84,37 +127,50 @@
   }
   function openRename(ctx, selected) {
     var plan = null, busy = false;
-    layer.open({
-      type: 1, title: label(ctx, 'rename'), shadeClose: false,
-      area: [Math.min(760, $(window).width() - 24) + 'px', Math.min(650, $(window).height() - 48) + 'px'],
-      btn: [label(ctx, 'preview'), label(ctx, 'close')],
-      content: '<div class="uc-dialog file-batch-dialog"><p class="batch-hint"></p>'
-        + '<div class="batch-rule"><label class="batch-mode-label"></label><select class="uc-input" name="mode"><option value="replace"></option><option value="affix"></option></select>'
-        + '<div class="batch-replace"><label class="batch-find-label"></label><input class="uc-input" name="find" maxlength="120"><label class="batch-replacement-label"></label><input class="uc-input" name="replace" maxlength="120"></div>'
-        + '<div class="batch-affix" hidden><label class="batch-prefix-label"></label><input class="uc-input" name="prefix" maxlength="120"><label class="batch-suffix-label"></label><input class="uc-input" name="suffix" maxlength="120"></div></div>'
-        + '<button type="button" class="uc-btn batch-reset" hidden></button><p class="batch-summary"></p><div class="batch-results"></div></div>',
-      success: function (layero) {
-        var $form = layero.find('.file-batch-dialog');
-        $form.find('.batch-hint').text(label(ctx, 'hint'));
-        $form.find('.batch-mode-label').text(label(ctx, 'mode'));
-        $form.find('option[value=replace]').text(label(ctx, 'replace_mode'));
-        $form.find('option[value=affix]').text(label(ctx, 'affix_mode'));
-        ['find', 'replacement', 'prefix', 'suffix'].forEach(function (key) {
-          $form.find('.batch-' + key + '-label').text(label(ctx, key));
-        });
-        $form.find('.batch-reset').text(label(ctx, 'adjust')).on('click', function () {
+    var $form = $('<div class="pan-batch-dialog file-batch-dialog">').append(selectedNote(ctx, selected));
+    $('<p class="batch-hint">').text(label(ctx, 'hint')).appendTo($form);
+    var $rule = $('<div class="batch-rule">').appendTo($form);
+    var $mode = $('<label class="batch-field batch-mode">').appendTo($rule);
+    $('<span class="batch-field-label">').text(label(ctx, 'mode')).appendTo($mode);
+    var $select = $('<select class="batch-input" name="mode">').appendTo($mode);
+    $('<option value="replace">').text(label(ctx, 'replace_mode')).appendTo($select);
+    $('<option value="affix">').text(label(ctx, 'affix_mode')).appendTo($select);
+    function fields(className, entries, hidden) {
+      var $fields = $('<div class="batch-fields">').addClass(className).prop('hidden', hidden).appendTo($rule);
+      entries.forEach(function (entry) {
+        var $field = $('<label class="batch-field">').appendTo($fields);
+        $('<span class="batch-field-label">').text(label(ctx, entry[1])).appendTo($field);
+        $('<input type="text" class="batch-input" maxlength="120" autocomplete="off">').attr('name', entry[0]).appendTo($field);
+      });
+    }
+    fields('batch-replace', [['find', 'find'], ['replace', 'replacement']], false);
+    fields('batch-affix', [['prefix', 'prefix'], ['suffix', 'suffix']], true);
+    var $preview = $('<section class="batch-section batch-preview" hidden>').appendTo($form);
+    var $heading = $('<div class="batch-section-heading">').appendTo($preview);
+    $('<h3 class="batch-section-title">').text(label(ctx, 'preview_title')).appendTo($heading);
+    var $reset = $('<button type="button" class="batch-reset" hidden>').text(label(ctx, 'adjust')).appendTo($heading);
+    $('<p class="batch-summary" role="status">').appendTo($preview);
+    $('<div class="batch-results">').appendTo($preview);
+    openDialog({
+      title: label(ctx, 'rename'), btn: [label(ctx, 'preview'), label(ctx, 'close')], content: $form,
+      success: function ($layer, index) {
+        $reset.on('click', function () {
+          if (busy) return;
           plan = null; $form.find('input,select').prop('disabled', false);
           $form.find('.batch-results,.batch-summary').empty();
-          $(this).prop('hidden', true); layero.find('.layui-layer-btn0').text(label(ctx, 'preview'));
+          $preview.prop('hidden', true); $reset.prop('hidden', true);
+          $layer.find('.layui-layer-btn0').text(label(ctx, 'preview'));
+          recenter(index, $layer);
         });
-        $form.find('[name=mode]').on('change', function () {
+        $select.on('change', function () {
           $form.find('.batch-replace').prop('hidden', this.value !== 'replace');
           $form.find('.batch-affix').prop('hidden', this.value !== 'affix');
+          recenter(index, $layer);
         });
       },
-      yes: function (index, layero) {
+      yes: function (index, $layer) {
         if (busy) return;
-        var $form = layero.find('.file-batch-dialog'), data, action;
+        var data, action;
         if (plan) {
           if (!plan.token || !plan.ready) { layer.msg(label(ctx, 'no_change')); return; }
           data = { token: plan.token }; action = 'fileBatchRenameApply';
@@ -125,31 +181,30 @@
           });
           action = 'fileBatchRenamePreview';
         }
-        busy = true; var loading = layer.load(2);
+        busy = true; $form.attr('aria-busy', 'true'); $layer.addClass('batch-working');
+        var loading = layer.load(2);
         request(ctx, action, data).done(function (res) {
           if (!res) { layer.msg(label(ctx, 'failed')); return; }
           if (action === 'fileBatchRenamePreview') {
             if (res.code !== 0) { layer.msg(res.msg || label(ctx, 'failed')); return; }
             plan = res; $form.find('input,select').prop('disabled', true);
-            $form.find('.batch-reset').prop('hidden', false);
+            $preview.prop('hidden', false); $reset.prop('hidden', false);
             $form.find('.batch-summary').text(res.msg);
             $form.find('.batch-results').empty().append(rowsTable(ctx, res.rows));
-            layero.find('.layui-layer-btn0').text(label(ctx, 'apply'));
+            $layer.find('.layui-layer-btn0').text(label(ctx, 'apply'));
+            recenter(index, $layer);
           } else {
             layer.close(index);
             if (res.ok && window.PanList) window.PanList.refresh();
-            layer.open({
-              type: 1, title: label(ctx, 'result'),
-              area: [Math.min(700, $(window).width() - 24) + 'px', Math.min(530, $(window).height() - 48) + 'px'],
-              btn: [label(ctx, 'close')], content: '<div class="uc-dialog"><p></p><div class="batch-result-rows"></div></div>',
-              success: function (resultLayer) {
-                resultLayer.find('p').text(res.msg || label(ctx, 'failed'));
-                resultLayer.find('.batch-result-rows').append(rowsTable(ctx, res.rows || []));
-              }
-            });
+            var $result = $('<div class="pan-batch-dialog batch-result-dialog">');
+            $('<p class="batch-summary" role="status">').text(res.msg || label(ctx, 'failed')).appendTo($result);
+            $('<div class="batch-result-rows">').append(rowsTable(ctx, res.rows || [])).appendTo($result);
+            openDialog({ title: label(ctx, 'result'), btn: [label(ctx, 'close')], content: $result });
           }
         }).fail(function () { layer.msg(label(ctx, 'network')); })
-          .always(function () { busy = false; layer.close(loading); });
+          .always(function () {
+            busy = false; $form.attr('aria-busy', 'false'); $layer.removeClass('batch-working'); layer.close(loading);
+          });
       }
     });
   }
