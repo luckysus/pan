@@ -170,7 +170,7 @@ class Region
     public static function queryRegion($ak, $bucket)
     {
         $Region = new Region();
-        $url = Config::API_HOST . '/v2/query' . "?ak=$ak&bucket=$bucket";
+        $url = 'https://' . Config::API_HOST . '/v2/query' . "?ak=$ak&bucket=$bucket";
         $ret = Client::Get($url);
         if (!$ret->ok()) {
             return array(null, new Error($url, $ret));

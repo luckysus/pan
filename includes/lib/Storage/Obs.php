@@ -15,8 +15,8 @@ class Obs implements IStorage {
 		$this->obsClient = new \Obs\ObsClient([
 			'key' => $config['accessKey'],
 			'secret' => $config['secretKey'],
-			'endpoint' => $config['endpoint'],
-			'ssl_verify' => false,
+			'endpoint' => preg_replace('#^http://#i', 'https://', trim($config['endpoint'])),
+			'ssl_verify' => true,
 		]);
 	}
 

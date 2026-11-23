@@ -10,8 +10,8 @@ if(PHP_VERSION_ID < 70400){
 	header('Content-Type: text/html; charset=UTF-8');
 	exit('<h2>PHP 版本过低</h2><p>本程序需要 PHP 7.4 或以上版本，当前是 '.htmlspecialchars(PHP_VERSION).'。请在主机面板里切换 PHP 版本后再访问。</p>');
 }
-define('VERSION', '1640');
-define('DB_VERSION', '1036');
+define('VERSION', '1641');
+define('DB_VERSION', '1037');
 date_default_timezone_set('Asia/Shanghai');
 $date = date("Y-m-d H:i:s");
 

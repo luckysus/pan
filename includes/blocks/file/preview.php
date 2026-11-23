@@ -50,7 +50,7 @@ return [
 			'name_html' => $d['name'],
 			'size' => size_format($row['size']),
 			'downurl_html' => $d['downurl'],
-			'texturl_html' => $d['texturl'],
+			'texturl_html' => isset($d['previewurl']) ? $d['previewurl'] : $d['texturl'],
 			'text_viewable' => $d['text_viewable'],
 			'office_url_html' => $d['office_url'],
 		];

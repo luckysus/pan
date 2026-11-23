@@ -15,8 +15,8 @@ class Qcloud implements IStorage {
 		$this->cosClient = new \Qcloud\Cos\Client(
 			array(
 				'region' => $config['region'],
-				'schema' => 'http',
-				'verify' => false,
+				'schema' => 'https',
+				'verify' => true,
 				'credentials'=> array(
 					'secretId'  => $config['secretId'] ,
 					'secretKey' => $config['secretKey'])));

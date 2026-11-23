@@ -9,15 +9,16 @@
  *   - #replaceFileInput、#guestBatchBar、.guest-check 等 id / 类名：页面末尾的脚本要用。
  */
 if(!defined('IN_CRONLITE'))exit();
+require_once SYSTEM_ROOT.'file_batch.php';
 return [
 	'name' => '文件列表',
 	'group' => '首页',
 	'scope' => 'front',
 	'pages' => ['index'],
-	'schema' => [
+	'schema' => array_merge(file_batch_schema(), [
 		['key'=>'action_col', 'type'=>'select', 'label'=>'操作列位置', 'default'=>'left', 'options'=>['left'=>'第二列', 'right'=>'最右边']],
 		['key'=>'cards', 'type'=>'switch', 'label'=>'手机上排成卡片', 'default'=>1, 'help'=>'自带卡片网格的外观（门户风、macOS 窗口风）关掉'],
-	],
+	]),
 	'data' => function($cfg, &$ctx){
 		global $DB, $conf;
 		$d = $ctx['data'];
@@ -137,6 +138,7 @@ return [
 		}
 		$empty = ($numrows == 0 && $fd_rows === '');
 		$data = [
+			'batch_labels_html' => file_batch_labels_html($cfg),
 			'is_mine' => $is_mine,
 			'guest_mine' => $guest_mine,
 			'fd_on' => $d['fd_on'],

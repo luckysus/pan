@@ -13,6 +13,7 @@ class Oss implements IStorage {
 		$this->bucket = $config['bucket'];
 		$this->config = $config;
 		$this->ossClient = new \OSS\OssClient($config['accessKeyId'], $config['accessKeySecret'], $config['endpoint']);
+		$this->ossClient->setUseSSL(true);
 	}
 
 	public function getClient(){

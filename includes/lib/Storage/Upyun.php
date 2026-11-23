@@ -11,6 +11,7 @@ class Upyun implements IStorage {
 	public function __construct($config) {
 		$this->config = $config;
 		$serviceConfig = new \Upyun\Config($config['serviceName'], $config['operatorName'], $config['operatorPwd']);
+		$serviceConfig->useSsl = true;
 		$this->client = new \Upyun\Upyun($serviceConfig);
 	}
 	
@@ -37,7 +38,7 @@ class Upyun implements IStorage {
 			$this->client->read($this->filepath.$name, $handle);
 			return true;
 		} catch(\Throwable $e) { return false; }
-		finally { fclose($handle); }
+		finally { if(is_resource($handle))fclose($handle); }
 	}
 
 	public function get($name) {

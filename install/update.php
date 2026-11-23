@@ -345,9 +345,13 @@ if($need_1035)$sqls = array_merge($sqls, read_sql('update_1035.sql'));
 //1036：单用户空间覆盖；结构自检保证中断后可重复补齐。
 $q = $db->query("SHOW COLUMNS FROM `pre_user` LIKE 'space'");
 if(!$q || !$q->fetchColumn())$sqls = array_merge($sqls, read_sql('update_1036.sql'));
-$sqls[] = "REPLACE INTO `pre_config` VALUES ('version', '1036')";
+//1037：实例表不迁移或改写旧文件storage引用，建表可安全重跑。
+$q = $db->query("SHOW TABLES LIKE 'pre_storage_instance'");
+if(!$q || !$q->fetchColumn())$sqls = array_merge($sqls, read_sql('update_1037.sql'));
+$q = $db->query("SHOW COLUMNS FROM pre_storage_instance LIKE 'used_at'");
+if(!$q || !$q->fetchColumn())$sqls[] = "ALTER TABLE pre_storage_instance ADD COLUMN used_at datetime DEFAULT NULL";
 //上面 else 分支只按 1022 判断「已是最新」，从 1022～1033 升上来时要改回「升级完成」的提示
-if($version < 1036)$uptodate = false;
+if($version < 1037)$uptodate = false;
 
 $success=0;$skipped=0;$error=0;$errorMsg=null;
 foreach ($sqls as $value) {
@@ -386,7 +390,7 @@ if($errorMsg){
  * 出过"版本号写上去了、表却没建出来"的情况，页面还提示升级成功，
  * 站长要等到用那个功能才会看见 1146 报错，这里提前说清楚。
  */
-$need_tables = ['pre_greenlog', 'pre_greenjob', 'pre_user_bind', 'pre_api_key', 'pre_folder', 'pre_level', 'pre_folder_share'];
+$need_tables = ['pre_greenlog', 'pre_greenjob', 'pre_user_bind', 'pre_api_key', 'pre_folder', 'pre_level', 'pre_folder_share', 'pre_storage_instance'];
 $lost = [];
 foreach($need_tables as $t){
 	//ERRMODE_SILENT 下 query 出错会返回 false，不能直接往后链 fetchColumn
@@ -578,6 +582,21 @@ if(update_conf($db, 'level_upload_migrated') !== '1'){
 	$db->exec("REPLACE INTO `pre_config` VALUES ('level_upload_migrated', '1')");
 	$uptodate = false;
 }
+// 老空值只能在升级时按原默认存储固定一次，不能在以后切换默认实例时跟着漂移。
+if(update_conf($db, 'storage_empty_pinned') !== '1'){
+	$empty_count = intval($db->query("SELECT COUNT(*) FROM pre_file WHERE storage=''")->fetchColumn());
+	if($empty_count){
+		$legacy_storage = update_conf($db, 'storage');
+		if(!preg_match('/^[a-z][a-z0-9_]{0,19}$/D', $legacy_storage) || strpos($legacy_storage, 'inst_') === 0){
+			exit('旧文件存储归属无法自动确定，请先恢复升级前默认存储后重试；数据库版本尚未更新。');
+		}
+		$pin = $db->prepare("UPDATE pre_file SET storage=:s WHERE storage=''");
+		if(!$pin || !$pin->execute([':s'=>$legacy_storage]))exit('固定旧文件存储归属失败，数据库版本尚未更新。');
+	}
+	if($db->exec("REPLACE INTO pre_config VALUES ('storage_empty_pinned','1')") === false)exit('保存旧文件迁移状态失败，请重试。');
+}
+// 所有结构/数据迁移成功之后才提高版本，失败不能把残缺结构标为升级完成。
+if($db->exec("REPLACE INTO pre_config VALUES ('version','1037')") === false)exit('保存数据库版本失败，请重试。');
 $done_msg =$uptodate ?'数据库结构已是最新，表结构校验通过！' : '网站数据库升级完成！';
 exit("<script language='javascript'>alert('".$done_msg."');window.location.href=".json_encode($update_back).";</script>");
 ?>

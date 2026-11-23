@@ -66,6 +66,7 @@ class StorHelper
 
     public static function getModel($storage)
     {
+        if(StorageInstances::isReference($storage))return StorageInstances::model($storage);
         //移植自 OpenList 的新驱动参数存法不一样，交给 StorExt（DEC-20261023-001）
         if(StorExt::has($storage))return StorExt::model($storage);
         $class = "\\lib\\Storage\\".ucwords($storage);
@@ -81,9 +82,9 @@ class StorHelper
      * 存储类型的显示名。
      * 后台设置页和前台上传框的存储下拉都要用，放一处，免得两边对不上。
      */
-    public static function names()
+    public static function names($withInstances = true)
     {
-        return [
+        $names = [
             'local' => '本地存储',
             'oss' => '阿里云 OSS',
             'qcloud' => '腾讯云 COS',
@@ -97,6 +98,10 @@ class StorHelper
             'sae' => 'SaeStorage',
             'ace' => 'AceStorage',
         ] + self::ext_names();
+        if($withInstances){
+            foreach(StorageInstances::all() as $key=>$row)$names[$key] = $row['name'].'（'.(isset($names[$row['type']]) ? $names[$row['type']] : $row['type']).'）';
+        }
+        return $names;
     }
 
     private static function ext_names()
@@ -158,6 +163,7 @@ class StorHelper
 
     //是不是云存储（本地磁盘之外的都算），后台据此决定要不要显示上传下载方式
     public static function is_cloud($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'is_cloud');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return !in_array($storage, ['local','sae','ace'], true);
@@ -166,6 +172,7 @@ class StorHelper
     //能不能直传：浏览器带着签名参数把文件直接 POST 给存储，不经过本站。
     //WebDAV、OneDrive、OpenList 的直传要用 PUT / 上传会话，跟前端这套 POST 表单对不上，只能中转
     public static function is_direct_upload($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'is_direct_upload');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return in_array($storage, ['oss','qcloud','obs','upyun','qiniu','s3'], true);
@@ -173,6 +180,7 @@ class StorHelper
 
     //能不能直链下载：下载时 302 到存储自己的地址，省本站流量
     public static function is_direct_down($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'is_direct_down');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return in_array($storage, ['oss','qcloud','obs','upyun','qiniu','s3','onedrive','openlist'], true) || StorExt::is_direct_down($storage);
@@ -184,6 +192,7 @@ class StorHelper
      * 所以驱动里都做了替换；S3、OneDrive、OpenList 不读这个配置，各自返回完整地址。
      */
     public static function uses_down_domain($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'uses_down_domain');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return in_array($storage, ['oss','qcloud','obs','upyun','qiniu'], true);
@@ -197,6 +206,7 @@ class StorHelper
      * 对象存储不能照搬：站长可能在桶上配了「只允许本站 Referer、不允许空 Referer」的防盗链，去掉就取不到了。
      */
     public static function direct_no_referer($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'direct_no_referer');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return in_array($storage, ['openlist'], true) || StorExt::no_referer($storage);
@@ -204,6 +214,7 @@ class StorHelper
 
     //判断是否可以断点续传
     public static function is_range($storage = null){
+        if(StorageInstances::isReference($storage))return StorageInstances::capability($storage, 'is_range');
         global $conf;
         if($storage === null) $storage = $conf['storage'];
         return in_array($storage, ['local','oss','qcloud','obs','qiniu','s3','webdav','onedrive','openlist'], true) || StorExt::is_range($storage);

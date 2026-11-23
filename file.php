@@ -28,6 +28,9 @@ if(!empty($pwd))$texturl .= '&pwd='.rawurlencode($pwd);
 $downurl_all = $siteurl.$downurl;
 $viewurl_all = $siteurl.$viewurl;
 $texturl_all = $siteurl.$texturl;
+//高级预览是独立页面；原始 text.php 地址继续供接口、编辑器和旧外链使用。
+$previewurl = 'preview.php?hash='.$row['token'];
+if(!empty($pwd))$previewurl .= '&pwd='.rawurlencode($pwd);
 
 $thisurl = $siteurl.'file.php?hash='.$row['token'];
 if(!empty($pwd))$thisurl .= '&pwd='.$pwd;
@@ -102,6 +105,7 @@ echo theme_render_layout('file', [
   'downurl' => $downurl,
   'viewurl' => $viewurl,
   'texturl' => $texturl,
+  'previewurl' => $previewurl,
   'downurl_all' => $downurl_all,
   'viewurl_all' => $viewurl_all,
   'texturl_all' => $texturl_all,

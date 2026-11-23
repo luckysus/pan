@@ -2,6 +2,7 @@
 $nosession = true;
 $nosecu = true;
 include("./includes/common.php");
+require_once SYSTEM_ROOT.'upload_storage.php';
 
 function showresult($arr, $format='json'){
 	$format = isset($_POST['format'])?$_POST['format']:'json';
@@ -82,6 +83,10 @@ if(!empty($conf['api_referer'])){
 
 //上传API和ajax.php走的是同一套配额，强制登录/大小/每日数量三道限制都要照样执行
 if($conf['forcelogin']==1 && !$islogin2)showresult(['code'=>-1, 'msg'=>'请先登录']);
+$target_stor = storage_pick(isset($_POST['storage']) ? $_POST['storage'] : null);
+$target_model = \lib\StorHelper::get($target_stor);
+if(!$target_model)showresult(['code'=>-1, 'msg'=>'存储配置有误，请联系站长']);
+
 
 if(!isset($_FILES['file']))showresult(['code'=>-1, 'msg'=>'请选择文件']);
 if($_FILES['file']['error'] !== UPLOAD_ERR_OK)showresult(['code'=>-1, 'msg'=>'文件上传失败，可能超出服务器限制', 'error'=>'upload']);
@@ -155,12 +160,12 @@ if($minute_limit > 0){
 
 $hash = md5_file($_FILES['file']['tmp_name']);
 if(!lock_file_blobs([$hash]))showresult(['code'=>-1, 'msg'=>'文件正忙，请稍后重试']);
-$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
+$row = upload_existing_in_storage($hash, $target_stor);
 if($row){
 	unset($_SESSION['csrf_token']);
 	//秒传：跳过物理上传，但仍建独立记录，这次上传有自己的链接和文件名，不会挂到别人名下
-	$record = create_file_record_from_existing($row, $name, $size, $ext, $hide, $pwd, $uid, $clientip);
-	if(!$record){try{delete_file_blob_if_orphaned($hash, null, $conf['storage']);}catch(\Throwable $ignored){}showresult(['code'=>-1, 'msg'=>space_error('上传失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database']);}
+	$record = create_file_record_from_existing($row, $name, $size, $ext, $hide, $pwd, $uid, $clientip, $target_stor);
+	if(!$record){try{delete_file_blob_if_orphaned($hash, null, $target_stor);}catch(\Throwable $ignored){}showresult(['code'=>-1, 'msg'=>space_error('上传失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database']);}
 	//下载和预览地址都按 token 解析，不能再用内容哈希拼链接
 	$downurl = $siteurl.'down.php/'.$record['token'].'.'.$ext;
 	if(!empty($pwd))$downurl .= '&'.$pwd;
@@ -172,11 +177,15 @@ if($row){
 	}
 	showresult($result);
 }
-$result = $stor->upload($hash, $_FILES['file']['tmp_name'], minetype($ext));
+if(!\lib\StorageInstances::markUsed($target_stor))showresult(['code'=>-1, 'msg'=>'存储实例已变化，请重新上传']);
+$result = $target_model->upload($hash, $_FILES['file']['tmp_name'], minetype($ext));
 if(!$result)showresult(['code'=>-1, 'msg'=>'文件上传失败', 'error'=>'stor']);
 //统一走 create_file_record，它负责生成访问用的 token，并顺带做图片检测和违规留档
-$record = create_file_record($name, $hash, $size, $ext, $hide, $pwd, $uid, $clientip);
-if(!$record){try{delete_file_blob_if_orphaned($hash, null, $conf['storage']);}catch(\Throwable $ignored){}showresult(['code'=>-1, 'msg'=>space_error('上传失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database']);}
+$existing_content = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash ORDER BY block DESC,id ASC LIMIT 1", [':hash'=>$hash]);
+$record = $existing_content
+	? create_file_record_from_existing($existing_content, $name, $size, $ext, $hide, $pwd, $uid, $clientip, $target_stor)
+	: create_file_record($name, $hash, $size, $ext, $hide, $pwd, $uid, $clientip, true, $target_stor);
+if(!$record){try{delete_file_blob_if_orphaned($hash, null, $target_stor);}catch(\Throwable $ignored){}showresult(['code'=>-1, 'msg'=>space_error('上传失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database']);}
 $id = $record['id'];
 $token = $record['token'];
 

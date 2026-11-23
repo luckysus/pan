@@ -53,6 +53,14 @@ if($act !== ''){
 	}
 
 	switch($act){
+	case 'fileBatchLinks':
+	case 'fileBatchRenamePreview':
+	case 'fileBatchRenameApply':
+		require_once SYSTEM_ROOT.'file_batch.php';
+		$result = file_batch_handle($act, $_POST, true);
+		uc_json($result['code'], $result['msg'], $result);
+	break;
+
 	case 'createApiKey':
 		if(empty($conf['api_open']))uc_json(-1, '上传 API 已关闭');
 		if(!level_can('api'))uc_json(-1, '当前账号的会员等级不能使用上传接口');

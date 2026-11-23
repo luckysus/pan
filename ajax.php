@@ -1,6 +1,7 @@
 <?php
 $nosecu = true;
 include("./includes/common.php");
+require_once SYSTEM_ROOT.'upload_storage.php';
 $act=isset($_GET['act'])?daddslashes($_GET['act']):null;
 
 if(!checkRefererHost())exit('{"code":403}');
@@ -172,6 +173,11 @@ case 'pre_upload':
 	$target_stor = storage_pick(isset($_POST['storage']) ? $_POST['storage'] : null);
 	$target_model = \lib\StorHelper::get($target_stor);
 	if(!$target_model)exit('{"code":-1,"msg":"存储配置有误，请联系站长"}');
+	$wanted_upload = ['storage'=>$target_stor, 'name'=>$name, 'size'=>$size, 'ext'=>$ext, 'hide'=>$hide, 'pwd'=>$pwd, 'replace_id'=>$replace_id, 'folder_id'=>$upload_folder];
+	if(!upload_state_compatible(get_upload_state($hash), $wanted_upload)){
+		exit('{"code":-1,"msg":"相同内容正在另一个上传任务中，请先完成该任务，或稍后重新选择文件"}');
+	}
+
 
 	$limit_size = get_effective_upload_size_limit();
 	if($limit_size > 0 && $size > $limit_size * 1024 * 1024){
@@ -209,19 +215,19 @@ case 'pre_upload':
 		}
 	}
 	if(!lock_file_blobs($replace_row ? [$hash, $replace_row['hash']] : [$hash]))exit('{"code":-1,"msg":"文件正忙，请稍后重试"}');
-	$row = $DB->getRow("SELECT * FROM pre_file WHERE hash=:hash", [':hash'=>$hash]);
+	$row = upload_existing_in_storage($hash, $target_stor);
 	if($row && (int)$row['size'] !== $size)exit('{"code":-1,"msg":"文件大小与已有内容不符"}');
 	if($row && $replace_row){
 		//覆盖的新内容站内已经有了，物理文件不用再传，直接把记录的内容换掉。
 		//这次没往存储里写东西，所以记录要指向那份内容实际所在的存储，不是当前存储
-		if(!replace_file_record($replace_row, $name, $hash, $size, $ext, $uid, $clientip, 'replace', $row['storage']))exit(json_encode(['code'=>-1, 'msg'=>space_error('替换失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database'], JSON_UNESCAPED_UNICODE));
+		if(!replace_file_record($replace_row, $name, $hash, $size, $ext, $uid, $clientip, 'replace', $target_stor))exit(json_encode(['code'=>-1, 'msg'=>space_error('替换失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database'], JSON_UNESCAPED_UNICODE));
 		$result = ['code'=>1, 'msg'=>'替换成功，链接保持不变', 'exists'=>1, 'hash'=>$hash, 'token'=>$replace_row['token'], 'name'=>$name, 'size'=>$size, 'type'=>$ext, 'id'=>$replace_row['id']];
 		set_upload_csrf_token($result);
 		exit(json_encode($result));
 	}
 	if($row){
 		//秒传：跳过物理上传，但要为这次上传建独立记录，上传者才能在“我的文件”里看到并拥有自己的链接
-		$record = create_file_record_from_existing($row, $name, $size, $ext, $hide, $pwd, $uid, $clientip);
+		$record = create_file_record_from_existing($row, $name, $size, $ext, $hide, $pwd, $uid, $clientip, $target_stor);
 		if(!$record)exit(json_encode(['code'=>-1, 'msg'=>space_error('上传失败'.$DB->error()), 'error'=>!empty($GLOBALS['_space_error']) ? 'space' : 'database'], JSON_UNESCAPED_UNICODE));
 		$_SESSION['fileids'][] = $record['id'];
 		folder_place_file($record['id'], $upload_folder);
@@ -238,6 +244,8 @@ case 'pre_upload':
 		exit(json_encode(['code'=>-1, 'msg'=>upload_traffic_deny_msg($size), 'error'=>'upload_traffic'], JSON_UNESCAPED_UNICODE));
 	}
 	upload_temp_cleanup(UPLOAD_STATE_TTL);
+
+	if(!\lib\StorageInstances::markUsed($target_stor))exit('{"code":-1,"msg":"存储实例已变化，请重新上传"}');
 
 	//能不能直传要按这次的目标存储判断，不能按全站当前存储
 	if(\lib\StorHelper::is_direct_upload($target_stor) && $conf['uploadfile_type'] == 1){
@@ -548,6 +556,13 @@ case 'complete_upload':
 	exit(json_encode($result));
 break;
 
+case 'fileBatchLinks':
+case 'fileBatchRenamePreview':
+case 'fileBatchRenameApply':
+	require_once SYSTEM_ROOT.'file_batch.php';
+	exit(json_encode(file_batch_handle($act, $_POST, false), JSON_UNESCAPED_UNICODE));
+break;
+
 case 'deleteFile':
 	//前台传过来的是文件链接上的 token，不是内容哈希，两者都是32位十六进制，用错字段查不到记录
 	$token = isset($_POST['hash'])?trim($_POST['hash']):exit('{"code":-1,"msg":"no hash"}');
@@ -591,12 +606,12 @@ case 'saveFileContent':
 	$current = $DB->getRow('SELECT * FROM pre_file WHERE id=:id LIMIT 1', [':id'=>$row['id']]);
 	if(!$current || $current['hash'] !== $row['hash'] || $current['storage'] !== $row['storage'])exit('{"code":-1,"msg":"文件已改变，请刷新后重试"}');
 	$row = $current;
-	$saved = space_write(intval($row['uid']), $row['ipkey'], $size, intval($row['id']), function() use ($DB, $row, $hash, $content, $size, $conf){
-		if(!save_storage_content($hash, $content, $row['type']))return false;
-		return $DB->exec("UPDATE pre_file SET size=:size,hash=:hash,storage=:storage,lasttime=NOW() WHERE id=:id", [':size'=>$size, ':hash'=>$hash, ':storage'=>$conf['storage'], ':id'=>$row['id']]) !== false;
+	$saved = space_write(intval($row['uid']), $row['ipkey'], $size, intval($row['id']), function() use ($DB, $row, $hash, $content, $size){
+		if(!save_storage_content($hash, $content, $row['type'], $row['storage']))return false;
+		return $DB->exec("UPDATE pre_file SET size=:size,hash=:hash,storage=:storage,lasttime=NOW() WHERE id=:id", [':size'=>$size, ':hash'=>$hash, ':storage'=>$row['storage'], ':id'=>$row['id']]) !== false;
 	});
 	if(!$saved){
-		cleanup_orphan_object($hash, $conf['storage']);
+		cleanup_orphan_object($hash, $row['storage']);
 		exit(json_encode(['code'=>-1, 'msg'=>space_error('保存文件失败，请稍后重试')], JSON_UNESCAPED_UNICODE));
 	}
 

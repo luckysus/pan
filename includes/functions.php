@@ -2659,6 +2659,8 @@ function is_admin_setting_key($k){
 
 function saveSetting($k, $v){
 	global $DB;
+	$scoped = \lib\StorageInstances::saveScoped($k, $v);
+	if($scoped !== null)return $scoped;
 	return $DB->exec("REPLACE INTO pre_config SET v=:v,k=:k", [':v'=>$v, ':k'=>$k]);
 }
 
@@ -3298,12 +3300,15 @@ function storage_pool(){
 function storage_allowed_list(){
 	global $conf;
 	$current = $conf['storage'];
-	if(!storage_multi_open())return [$current];
+	if(!storage_multi_open())return \lib\StorageInstances::available($current, storage_user_tier()) ? [$current] : ['local'];
 	$tier = storage_user_tier();
-	$list = [$current];
+	$list = \lib\StorageInstances::available($current, $tier) ? [$current] : ['local'];
 	foreach(storage_pool() as $key=>$need){
 		if($key === $current)continue;
-		if($tier >= $need)$list[] = $key;
+		if($tier >= $need && \lib\StorageInstances::available($key, $tier))$list[] = $key;
+	}
+	foreach(\lib\StorageInstances::all() as $key=>$instance){
+		if($key !== $current && !in_array($key, $list, true) && \lib\StorageInstances::available($key, $tier))$list[] = $key;
 	}
 	return $list;
 }
@@ -3966,21 +3971,20 @@ function decode_editable_content($content){
 	return ['code'=>-1, 'msg'=>'无法识别文件编码，请先转换为 UTF-8 后再编辑'];
 }
 
-//在线编辑保存：新内容一律写进「当前存储」，不跟着老文件回旧存储——
-//旧存储可能已经停用或者不打算再往里写了，调用方保存成功后要把记录的 storage 一并改成当前存储
-function save_storage_content($hash, $content, $type){
-	global $stor;
+//在线编辑保留文件的存储引用；未传引用的旧调用继续使用当前默认。
+function save_storage_content($hash, $content, $type, $storage = null){
+	$target = \lib\StorHelper::get($storage);
+	if(!is_object($target))return false;
 	$tmpfile = tempnam(sys_get_temp_dir(), 'edit_');
 	if($tmpfile === false)return false;
-	if(file_put_contents($tmpfile, $content) === false){
-		@unlink($tmpfile);
+	try{
+		if(file_put_contents($tmpfile, $content) === false)return false;
+		return $target->savefile($hash, $tmpfile, minetype($type));
+	}catch(\Throwable $e){
 		return false;
+	}finally{
+		if(is_file($tmpfile))@unlink($tmpfile);
 	}
-	$result = $stor->savefile($hash, $tmpfile, minetype($type));
-	if(file_exists($tmpfile)){
-		@unlink($tmpfile);
-	}
-	return $result;
 }
 
 
@@ -4249,10 +4253,10 @@ function green_file_source($hash, $ext, $ctx = [], $opt = []){
 	$url_only = !empty($opt['url_only']);
 	$no_view = !empty($opt['no_view']);
 	//视频检测是异步的，轮询时手上只有任务表里的 hash，$ctx 带不出存储，按 hash 反查一次
-	$storage = isset($ctx['storage']) && $ctx['storage'] !== '' ? $ctx['storage'] : file_storage_by_hash($hash);
+	$storage = isset($ctx['storage']) && $ctx['storage'] !== '' ? $ctx['storage'] : file_storage_by_hash($hash, isset($ctx['id']) ? intval($ctx['id']) : 0);
 	$stor = \lib\StorHelper::get($storage);
 
-	if(!$url_only && $storage === 'local' && is_object($stor) && method_exists($stor, 'filepath')){
+	if(!$url_only && \lib\StorageInstances::baseType($storage) === 'local' && is_object($stor) && method_exists($stor, 'filepath')){
 		$path = $stor->filepath($hash);
 		if($path !== '' && is_file($path))return ['path'=>$path];
 	}
@@ -4293,8 +4297,13 @@ function green_check_verify($token, $value){
  * 给的是异步流程用的：视频检测任务表里只有 hash，等结果回来时已经拿不到原来那条文件记录了。
  * 同一个 hash 在换过存储的站点上可能有多条记录（新旧存储各一份），任意一条都指向可用的内容。
  */
-function file_storage_by_hash($hash){
+function file_storage_by_hash($hash, $file_id = 0){
 	global $DB, $conf;
+	//异步任务优先使用原记录；记录已被编辑为另一hash时才查同内容的其他副本。
+	if(intval($file_id) > 0){
+		$row = $DB->getRow("SELECT storage FROM pre_file WHERE id=:id AND hash=:hash LIMIT 1", [':id'=>intval($file_id), ':hash'=>$hash]);
+		if($row)return $row['storage'] !== '' ? $row['storage'] : $conf['storage'];
+	}
 	$storage = $DB->getColumn("SELECT storage FROM pre_file WHERE hash=:hash AND storage<>'' LIMIT 1", [':hash'=>$hash]);
 	return $storage ? $storage : $conf['storage'];
 }
@@ -4636,7 +4645,7 @@ function green_video_poll($limit = 10){
 		$res = null;
 		if($job['job'] === ''){
 			//当初就没提交上去，重试一次
-			$src = green_file_source($job['hash'], $job['type'], ['name'=>$job['name']], ['no_view'=>true]);
+			$src = green_file_source($job['hash'], $job['type'], ['id'=>intval($job['file_id']), 'name'=>$job['name']], ['no_view'=>true]);
 			if($src){
 				$sub = checkVideo_submit($job['hash'], $job['type'], $src, $job['cbkey']);
 				if(is_array($sub) && !empty($sub['job'])){
@@ -5200,16 +5209,22 @@ function file_part_merge($hash, $chunks){
 }
 
 function get_file_range($size){
-	if(isset($_SERVER['HTTP_RANGE']) && !empty($_SERVER['HTTP_RANGE']) && preg_match('/^bytes=(\d+)-(\d*)$/i', $_SERVER['HTTP_RANGE'], $match)){
-		$start = intval($match[1]);
-		$end = intval($match[2]);
-		if($start < 0) $start = 0;
-		if($end == 0) $end = $size - 1;
-		if($end >= $size) $end = $size - 1;
-		if($end < $start || $start >= $size) return false;
-		return [$start, $end];
+	//单范围返回[start, end]；无效/多范围忽略；合法但无可用字节返回null，由输出端响应416。
+	$size = max(0, intval($size));
+	$header = isset($_SERVER['HTTP_RANGE']) && is_string($_SERVER['HTTP_RANGE']) ? trim($_SERVER['HTTP_RANGE']) : '';
+	if(!preg_match('/^bytes=(\d*)-(\d*)$/iD', $header, $match) || ($match[1] === '' && $match[2] === ''))return false;
+	if($match[1] === ''){
+		//后缀范围：bytes=-2取最后两字节；后缀为0没有可返回的字节。
+		$suffix = intval($match[2]);
+		if($suffix <= 0 || $size === 0)return null;
+		return [max(0, $size - $suffix), $size - 1];
 	}
-	return false;
+	$start = intval($match[1]);
+	$end = $match[2] === '' ? $size - 1 : intval($match[2]);
+	//反向范围本身不合法，和暂不支持的多范围一样忽略，按完整文件响应。
+	if($match[2] !== '' && $end < $start)return false;
+	if($size === 0 || $start >= $size)return null;
+	return [$start, min($end, $size - 1)];
 }
 
 //$storage 传文件记录里的 storage 字段，换过全站存储之后老文件要回原存储去取；
@@ -5259,7 +5274,7 @@ function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = f
 	 * 这种组合下旧文件改走网站中转：多耗一点本站带宽，但内容一定对；
 	 * 域名留空时各家用自己的默认域名，两边都没问题，不必降级。
 	 */
-	$domain_mismatch = $storage !== $conf['storage']
+	$domain_mismatch = !\lib\StorageInstances::isReference($storage) && $storage !== $conf['storage']
 		&& !empty($conf['downfile_domain'])
 		&& \lib\StorHelper::uses_down_domain($storage);
 
@@ -5292,11 +5307,15 @@ function file_output($hash, $type, $size, $name, $is_view = false, $is_admin = f
 		$range = false;
 		if(\lib\StorHelper::is_range($storage)){
 			header("Accept-Ranges: bytes");
-			$range = get_file_range($size);
-			//视频等媒体常用Range分段拖动播放；若客户端带着旧版本的If-Range校验值，
-			//说明它手里缓存的是替换前的分段，必须忽略Range改发完整最新内容，否则会把新旧文件的片段拼在一起播放
-			if($range && !$is_admin && isset($_SERVER['HTTP_IF_RANGE']) && trim($_SERVER['HTTP_IF_RANGE']) !== $etag){
-				$range = false;
+			//先校验If-Range；旧缓存即使请求了越界范围，也必须返回完整新文件而非416。
+			if($is_admin || !isset($_SERVER['HTTP_IF_RANGE']) || trim($_SERVER['HTTP_IF_RANGE']) === $etag){
+				$range = get_file_range($size);
+			}
+			if($range === null){
+				http_response_code(416);
+				header("Content-Range: bytes */{$size}");
+				header("Content-Length: 0");
+				return;
 			}
 		}
 

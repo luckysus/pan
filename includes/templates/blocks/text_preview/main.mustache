@@ -1,0 +1,45 @@
+<main class="tp-shell">
+{{#error}}
+  <section class="tp-error" role="alert">
+    <h1>{{cfg.heading}}</h1>
+    <p>{{message}}</p>
+    {{#password_required}}
+    <form action="preview.php" method="get">
+      <input type="hidden" name="hash" value="{{token}}">
+      <label for="tp-password">{{cfg.password_label}}</label>
+      <input id="tp-password" type="password" name="pwd" required autocomplete="off" autofocus>
+      <button type="submit">{{cfg.password_submit}}</button>
+    </form>
+    {{/password_required}}
+  </section>
+{{/error}}
+{{^error}}
+  <header class="tp-header">
+    <div class="tp-title"><span>{{cfg.heading}}</span><h1>{{name}}</h1><p>{{type}} · {{size}}</p></div>
+    <nav class="tp-links" aria-label="文件操作">
+      <a href="{{file_url}}">{{cfg.back_text}}</a>
+      <a href="{{raw_url}}" target="_blank" rel="noopener noreferrer">{{cfg.raw_text}}</a>
+      <a href="{{download_url}}">{{cfg.download_text}}</a>
+    </nav>
+  </header>
+  <section class="tp-card" data-text-preview data-type="{{type}}">
+    <div class="tp-toolbar">
+      <div class="tp-tabs" role="tablist" aria-label="预览方式">
+        <button type="button" id="tp-render-tab" role="tab" aria-controls="tp-render" aria-selected="false" hidden>{{cfg.render_text}}</button>
+        <button type="button" id="tp-source-tab" role="tab" aria-controls="tp-source" aria-selected="true">{{cfg.source_text}}</button>
+      </div>
+      <div class="tp-options">
+        <label><input id="tp-lines" type="checkbox" checked> {{cfg.lines_text}}</label>
+        <label><input id="tp-wrap" type="checkbox" checked> {{cfg.wrap_text}}</label>
+      </div>
+    </div>
+    <p id="tp-status" class="tp-status" role="status" aria-live="polite"></p>
+    <article id="tp-render" class="tp-markdown" role="tabpanel" aria-labelledby="tp-render-tab" hidden></article>
+    <div id="tp-source" class="tp-source tp-line-numbers tp-wrap" role="tabpanel" aria-labelledby="tp-source-tab">
+      <pre id="tp-plain"><code id="tp-content">{{content}}</code></pre>
+      <ol id="tp-code" hidden></ol>
+    </div>
+  </section>
+  <footer class="tp-note">{{cfg.privacy_text}}</footer>
+{{/error}}
+</main>

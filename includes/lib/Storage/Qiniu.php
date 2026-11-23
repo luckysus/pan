@@ -6,6 +6,7 @@ use GuzzleHttp\Psr7;
 
 class Qiniu implements IStorage {
 	private $config;
+	private $sdkConfig;
 	private $bucket;
 	private $auth;
 	private $errmsg;
@@ -14,6 +15,8 @@ class Qiniu implements IStorage {
 	public function __construct($config) {
 		$this->bucket = $config['bucket'];
 		$this->config = $config;
+		$this->sdkConfig = new \Qiniu\Config();
+		$this->sdkConfig->useHTTPS = true;
 		$this->auth = new \Qiniu\Auth($config['accessKey'], $config['secretKey']);
 	}
 
@@ -27,7 +30,7 @@ class Qiniu implements IStorage {
 
 	public function exists($name) {
 		try {
-			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth);
+			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth, $this->sdkConfig);
 			list($res, $err) = $bucketMgr->stat($this->bucket, $this->filepath.$name);
 			return $res!==null;
         } catch(\Exception $e) {
@@ -127,7 +130,7 @@ class Qiniu implements IStorage {
 	public function upload($name, $tmpfile, $content_type = null) {
         try {
 			$token = $this->auth->uploadToken($this->bucket);
-			$uploadMgr = new \Qiniu\Storage\UploadManager();
+			$uploadMgr = new \Qiniu\Storage\UploadManager($this->sdkConfig);
 			//七牛拒绝上传时 putFile 不抛异常，错误在返回值的第二项里。不看的话没传上去也当成功，
 			//会建出一条下载时报 File Not Found 的记录
 			list($ret, $err) = $uploadMgr->putFile($token, $this->filepath.$name, $tmpfile);
@@ -148,7 +151,7 @@ class Qiniu implements IStorage {
 		try {
 			$key = $this->filepath.$name;
 			$token = $this->auth->uploadToken($this->bucket, $key);
-			$uploadMgr = new \Qiniu\Storage\UploadManager();
+			$uploadMgr = new \Qiniu\Storage\UploadManager($this->sdkConfig);
 			list($ret, $err) = $uploadMgr->putFile($token, $key, $tmpfile);
 			if($err !== null){
 				$this->errmsg = __FUNCTION__ . ': ' . $err->message();
@@ -165,10 +168,10 @@ class Qiniu implements IStorage {
 
 	public function getinfo($name) {
 		try {
-			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth);
+			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth, $this->sdkConfig);
 			list($res, $err) = $bucketMgr->stat($this->bucket, $this->filepath.$name);
 			if($res!==null){
-				$result = ['length'=>$res['fsize'], 'content_type'=>$res['fsize']];
+				$result = ['length'=>$res['fsize'], 'content_type'=>$res['mimeType']];
 				return $result;
 			}else{
 				$this->errmsg = $err ? $err->message() : 'Unknown Error';
@@ -182,7 +185,7 @@ class Qiniu implements IStorage {
 
 	public function delete($name) {
 		try {
-			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth);
+			$bucketMgr = new \Qiniu\Storage\BucketManager($this->auth, $this->sdkConfig);
 			list($res, $err) = $bucketMgr->delete($this->bucket, $this->filepath.$name);
 			if($err===null){
 				return true;
@@ -229,7 +232,7 @@ class Qiniu implements IStorage {
 	private $bucketMgr = null;
 
 	private function bucketManager() {
-		if($this->bucketMgr === null)$this->bucketMgr = new \Qiniu\Storage\BucketManager($this->auth);
+		if($this->bucketMgr === null)$this->bucketMgr = new \Qiniu\Storage\BucketManager($this->auth, $this->sdkConfig);
 		return $this->bucketMgr;
 	}
 

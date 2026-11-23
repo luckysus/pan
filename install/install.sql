@@ -16,7 +16,7 @@ create table `pre_config` (
 --   · 如果没有并进来 → 这里保持旧值不动，让全新安装照常跑一次升级把它补上。
 -- 改错方向（并进来了却不改版本号）只是多跑一趟空升级；
 -- 改反了（没并进来却改了版本号）会让新装的站永久缺表缺字段，且毫无报错。
-INSERT INTO `pre_config` VALUES ('version', '1036');
+INSERT INTO `pre_config` VALUES ('version', '1037');
 INSERT INTO `pre_config` VALUES ('level_upload_migrated', '1');
 INSERT INTO `pre_config` VALUES ('level_migrated', '1');
 INSERT INTO `pre_config` VALUES ('admin_user', 'admin');
@@ -543,4 +543,16 @@ CREATE TABLE `pre_space_pack` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `order_id` (`order_id`),
   KEY `uid_expire` (`uid`,`expiretime`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS pre_storage_instance (
+  id int(10) unsigned NOT NULL AUTO_INCREMENT,
+  name varchar(80) NOT NULL,
+  type varchar(20) NOT NULL,
+  config mediumtext NOT NULL,
+  enabled tinyint(1) NOT NULL DEFAULT 1,
+  min_tier tinyint(1) NOT NULL DEFAULT 0,
+  used_at datetime DEFAULT NULL,
+  addtime datetime NOT NULL,
+  PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

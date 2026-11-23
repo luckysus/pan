@@ -1171,7 +1171,10 @@ function layout_editor_pages(){
 	//自定义页面排在前台固定页面后面，第 4 项是地址名（编辑器据此显示「页面设置 / 删除页面」）
 	$custom = [];
 	foreach(custom_pages() as $slug => $p)$custom['page-'.$slug] = ['自定义页面：'.$p['title'], 'front', 'page.php?p='.$slug, $slug];
-	return array_slice(layout_editor_pages_fixed(), 0, 11, true) + $custom + array_slice(layout_editor_pages_fixed(), 11, null, true);
+	$fixed = layout_editor_pages_fixed();
+	$front = array_filter($fixed, function($p){ return $p[1] === 'front'; });
+	$admin = array_filter($fixed, function($p){ return $p[1] === 'admin'; });
+	return $front + $custom + $admin;
 }
 
 /* 给编辑器页面下拉框用的清单：[{id, name, scope, slug?, title?}]，自定义页面带地址名和标题 */
@@ -1196,6 +1199,7 @@ function layout_editor_pages_fixed(){
 		'index' => ['首页 / 文件列表', 'front', ''],
 		'upload' => ['上传页', 'front', 'upload.php'],
 		'file' => ['文件页', 'front', 'file.php?hash={file}'],
+		'text-preview' => ['文本与代码预览', 'front', 'preview.php?hash={file}'],
 		'user' => ['个人中心', 'front', 'user.php'],
 		'buy' => ['购买页', 'front', 'buy.php'],
 		'login' => ['登录页', 'front', 'login.php'],
@@ -1223,6 +1227,7 @@ function layout_editor_pages_fixed(){
 		'admin/set-account' => ['后台：管理账号设置', 'admin', '{admin}/set.php?mod=account'],
 		'admin/set_script' => ['后台：广告公告位设置', 'admin', '{admin}/set_script.php'],
 		'admin/set_stor' => ['后台：存储类型设置', 'admin', '{admin}/set_stor.php'],
+		'admin/storage_instances' => ['后台：多存储实例', 'admin', '{admin}/storage_instances.php'],
 		'admin/set_mail' => ['后台：邮件发信设置', 'admin', '{admin}/set_mail.php'],
 		'admin/set_pay' => ['后台：购买套餐设置', 'admin', '{admin}/set_pay.php'],
 		'admin/set_violation' => ['后台：违规公示管理', 'admin', '{admin}/set_violation.php'],

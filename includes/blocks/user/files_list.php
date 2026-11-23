@@ -5,11 +5,13 @@
  * 读每行的 data-*，所以表格结构、id 和 data-* 换皮时要保留。脚本放到页脚之后。
  */
 if(!defined('IN_CRONLITE'))exit();
+require_once SYSTEM_ROOT.'file_batch.php';
 return [
 	'name' => '我的文件列表',
 	'group' => '个人中心',
 	'scope' => 'front',
 	'pages' => ['user'],
+	'schema' => file_batch_schema(),
 	'description' => '文件列表和批量操作（列表行为不能改）；页面靠它工作',
 	'data' => function($cfg, &$ctx){
 		global $DB;
@@ -70,6 +72,7 @@ return [
 			'folder_script_html' => folder_render_script($s['fd_cur'], $ctx['data']['csrf_token'], $s['fd_searching'], '.uc-check'),
 		], $ctx['theme_id']), 20);
 		return [
+			'batch_labels_html' => file_batch_labels_html($cfg),
 			'fd_on' => $s['fd_on'],
 			'folder_bar_html' => $s['fd_on'] ? folder_render_bar($s['fd_all'], $s['fd_cur'], $s['fd_url'], $s['fd_searching']) : '',
 			'batch_buttons_html' => $s['fd_on'] ? folder_render_batch_buttons() : '',

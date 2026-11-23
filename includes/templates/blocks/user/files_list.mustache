@@ -1,7 +1,9 @@
 {{{folder_bar_html}}}
-        <div class="uc-batchbar" id="ucBatchBar" hidden>
+        <div class="uc-batchbar" id="ucBatchBar" data-file-batch-owner="account" data-batch-labels="{{{batch_labels_html}}}" hidden>
             <span>已选中 <b id="ucSelCount">0</b> {{#fd_on}}项{{/fd_on}}{{^fd_on}}个文件{{/fd_on}}</span>
-{{{batch_buttons_html}}}            <button type="button" class="uc-btn uc-btn-danger" id="ucBatchDelete"><i class="fa fa-trash" aria-hidden="true"></i> 批量删除</button>
+{{{batch_buttons_html}}}            <button type="button" class="uc-btn" data-file-batch="copy"><i class="fa fa-link" aria-hidden="true"></i> {{cfg.batch_copy}}</button>
+            <button type="button" class="uc-btn" data-file-batch="rename"><i class="fa fa-pencil" aria-hidden="true"></i> {{cfg.batch_rename}}</button>
+            <button type="button" class="uc-btn uc-btn-danger" id="ucBatchDelete"><i class="fa fa-trash" aria-hidden="true"></i> 批量删除</button>
             <button type="button" class="uc-btn" id="ucSelClear">取消选择</button>
         </div>
 

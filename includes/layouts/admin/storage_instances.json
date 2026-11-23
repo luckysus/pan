@@ -1,0 +1,20 @@
+{
+  "nodes": [
+    {
+      "id": "container",
+      "block": "core.box",
+      "config": {
+        "class": "container admin-page-wide"
+      },
+      "children": [
+        {
+          "id": "instances",
+          "block": "admin.panel",
+          "config": {
+            "panel": "instances"
+          }
+        }
+      ]
+    }
+  ]
+}

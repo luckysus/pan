@@ -22,8 +22,14 @@ if(strpos($url,".")){
 }
 
 $row = $DB->getRow("SELECT * FROM `pre_file` WHERE `token`=:token limit 1", [':token'=>$token]);
-if(!$row)exit('404 Not Found');
-if($row['block']>=1)exit('File is blocked!');
+if(!$row){
+    http_response_code(404);
+    exit('404 Not Found');
+}
+if($row['block']>=1){
+    http_response_code(404);
+    exit('File is blocked!');
+}
 
 if(!check_file_pwd($row, $pwd)){ ?>
     <meta http-equiv="content-type" content="text/html;charset=utf-8"/>
@@ -47,5 +53,6 @@ if(\lib\StorHelper::get($row['storage'])->exists($row['hash']))
     file_output($row['hash'], $row['type'], $row['size'], $row['name'], false, false, $row['storage'], $row['uid']);
 }
 else{
+    http_response_code(404);
     exit('File Not Found');
 }
